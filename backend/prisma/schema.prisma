@@ -1,0 +1,379 @@
+// Gestão de Resíduos — schema multi-tenant (municípios)
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum MovementType {
+  ENTRY
+  TRANSFER_OUT
+  TRANSFER_IN
+  EXIT
+  ADJUSTMENT
+}
+
+enum EstablishmentRole {
+  DEPOSIT
+  DESTINATION
+}
+
+model Tenant {
+  id        String   @id @default(uuid())
+  name      String
+  slug      String   @unique
+  cnpj      String?  @db.VarChar(18)
+  active    Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  users              User[]
+  auditLogs          AuditLog[]
+  materialTypes      MaterialType[]
+  materials          RecyclableMaterial[]
+  units              UnitOfMeasure[]
+  activityBranches   ActivityBranch[]
+  establishments     Establishment[]
+  stockMovements     StockMovement[]
+  stockBalances      StockBalance[]
+  stockExits         StockExit[]
+  systemParameters   SystemParameter[]
+  customReports      CustomReport[]
+  schemaVersion      SchemaVersion?
+  permissionProfiles PermissionProfile[]
+}
+
+model PermissionProfile {
+  id           String   @id @default(uuid())
+  tenantId     String
+  tenant       Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  name         String   @db.VarChar(128)
+  description  String?  @db.Text
+  permissions  Json
+  fullAccess   Boolean  @default(false)
+  active       Boolean  @default(true)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+  users        User[]
+
+  @@index([tenantId])
+}
+
+model User {
+  id                    String            @id @default(uuid())
+  tenantId              String
+  tenant                Tenant            @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  email                 String
+  passwordHash          String            @db.VarChar(255)
+  name                  String
+  active                Boolean           @default(true)
+  lastLoginAt           DateTime?
+  permissionProfileId   String
+  permissionProfile     PermissionProfile @relation(fields: [permissionProfileId], references: [id], onDelete: Restrict)
+  createdAt             DateTime           @default(now())
+  updatedAt             DateTime           @updatedAt
+
+  auditLogs        AuditLog[]
+  loginAuditLogs   LoginAuditLog[]
+  stockMovements   StockMovement[] @relation("MovementUser")
+  stockExits       StockExit[]     @relation("ExitUser")
+
+  @@unique([tenantId, email])
+  @@index([tenantId])
+  @@index([permissionProfileId])
+}
+
+model LoginAuditLog {
+  id        String   @id @default(uuid())
+  tenantId  String?
+  userId    String?
+  user      User?    @relation(fields: [userId], references: [id], onDelete: SetNull)
+  email     String?
+  success   Boolean
+  ip        String?  @db.VarChar(64)
+  userAgent String?  @db.VarChar(512)
+  reason    String?  @db.VarChar(255)
+  createdAt DateTime @default(now())
+
+  @@index([tenantId, createdAt])
+}
+
+model AuditLog {
+  id         String   @id @default(uuid())
+  tenantId   String
+  tenant     Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  userId     String?
+  user       User?    @relation(fields: [userId], references: [id], onDelete: SetNull)
+  action     String   @db.VarChar(64)
+  resource   String   @db.VarChar(128)
+  resourceId String?  @db.VarChar(64)
+  details    Json?
+  ip         String?  @db.VarChar(64)
+  userAgent  String?  @db.VarChar(512)
+  createdAt  DateTime @default(now())
+
+  @@index([tenantId, createdAt])
+  @@index([tenantId, resource])
+}
+
+model MaterialType {
+  id          String   @id @default(uuid())
+  tenantId    String
+  tenant      Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  name        String
+  description String?  @db.Text
+  active      Boolean  @default(true)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  materials RecyclableMaterial[]
+
+  @@unique([tenantId, name])
+  @@index([tenantId])
+}
+
+model UnitOfMeasure {
+  id        String   @id @default(uuid())
+  tenantId  String
+  tenant    Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  code      String   @db.VarChar(16)
+  name      String
+  active    Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  materials RecyclableMaterial[]
+
+  @@unique([tenantId, code])
+  @@index([tenantId])
+}
+
+model RecyclableMaterial {
+  id             String   @id @default(uuid())
+  tenantId       String
+  tenant         Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  materialTypeId String
+  materialType   MaterialType @relation(fields: [materialTypeId], references: [id], onDelete: Restrict)
+  unitId         String
+  unit           UnitOfMeasure @relation(fields: [unitId], references: [id], onDelete: Restrict)
+  name           String
+  code           String?  @db.VarChar(32)
+  description    String?  @db.Text
+  active         Boolean  @default(true)
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  movements StockMovement[]
+  balances  StockBalance[]
+  exitItems StockExitItem[]
+
+  @@unique([tenantId, name])
+  @@index([tenantId])
+  @@index([materialTypeId])
+}
+
+model IbgeUf {
+  id     Int             @id
+  sigla  String          @unique @db.VarChar(2)
+  nome   String
+  cities IbgeMunicipio[]
+}
+
+model IbgeMunicipio {
+  id    Int    @id
+  nome  String
+  ufId  Int
+  uf    IbgeUf @relation(fields: [ufId], references: [id], onDelete: Cascade)
+
+  @@index([ufId])
+}
+
+model ActivityBranch {
+  id             String            @id @default(uuid())
+  tenantId       String
+  tenant         Tenant            @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  name           String
+  role           EstablishmentRole
+  active         Boolean           @default(true)
+  createdAt      DateTime          @default(now())
+  updatedAt      DateTime          @updatedAt
+  establishments Establishment[]
+
+  @@unique([tenantId, name, role])
+  @@index([tenantId])
+}
+
+model Establishment {
+  id               String   @id @default(uuid())
+  tenantId         String
+  tenant           Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  activityBranchId String
+  activityBranch   ActivityBranch @relation(fields: [activityBranchId], references: [id], onDelete: Restrict)
+  role             EstablishmentRole
+
+  legalName String
+  tradeName String
+  cnpj      String? @db.VarChar(18)
+  stateReg   String? @db.VarChar(32)
+  municipalReg String? @db.VarChar(32)
+
+  cep          String? @db.VarChar(9)
+  street       String? @db.VarChar(255)
+  number       String? @db.VarChar(32)
+  complement   String? @db.VarChar(128)
+  district     String? @db.VarChar(128)
+  cityName     String? @db.VarChar(128)
+  ufSigla      String? @db.VarChar(2)
+  ibgeCityCode Int?
+
+  receitaPayload Json?
+
+  legalRepFullName String?
+  legalRepCpf      String? @db.VarChar(14)
+  legalRepEmail    String?
+  legalRepPhone    String?
+  legalRepDocPath  String? @db.VarChar(512)
+
+  legacyAddress String?  @db.Text
+  code          String?  @db.VarChar(32)
+  active        Boolean  @default(true)
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  movementsFrom StockMovement[] @relation("MovFromEst")
+  movementsTo   StockMovement[] @relation("MovToEst")
+  balances      StockBalance[]
+  exits         StockExit[]
+
+  @@index([tenantId])
+  @@index([tenantId, role])
+  @@index([activityBranchId])
+}
+
+model StockMovement {
+  id              String       @id @default(uuid())
+  tenantId        String
+  tenant          Tenant       @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  materialId      String
+  material        RecyclableMaterial @relation(fields: [materialId], references: [id], onDelete: Restrict)
+  type            MovementType
+  quantity        Decimal      @db.Decimal(18, 6)
+  establishmentFromId String?
+  establishmentFrom   Establishment? @relation("MovFromEst", fields: [establishmentFromId], references: [id], onDelete: SetNull)
+  establishmentToId   String?
+  establishmentTo     Establishment? @relation("MovToEst", fields: [establishmentToId], references: [id], onDelete: SetNull)
+  reference       String?      @db.VarChar(64)
+  notes           String?      @db.Text
+  userId          String?
+  user            User?        @relation("MovementUser", fields: [userId], references: [id], onDelete: SetNull)
+  occurredAt      DateTime     @default(now())
+  createdAt       DateTime     @default(now())
+
+  stockExitId String?
+  stockExit   StockExit? @relation(fields: [stockExitId], references: [id], onDelete: SetNull)
+
+  @@index([tenantId, occurredAt])
+  @@index([tenantId, materialId])
+  @@index([establishmentToId])
+  @@index([establishmentFromId])
+}
+
+model StockBalance {
+  tenantId          String
+  tenant            Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  establishmentId   String
+  establishment       Establishment @relation(fields: [establishmentId], references: [id], onDelete: Cascade)
+  materialId        String
+  material          RecyclableMaterial @relation(fields: [materialId], references: [id], onDelete: Cascade)
+  quantity          Decimal  @db.Decimal(18, 6)
+  updatedAt         DateTime @updatedAt
+
+  @@id([tenantId, establishmentId, materialId])
+  @@index([tenantId])
+}
+
+model StockExit {
+  id               String   @id @default(uuid())
+  tenantId         String
+  tenant           Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  establishmentId  String
+  establishment    Establishment @relation(fields: [establishmentId], references: [id], onDelete: Restrict)
+  documentNumber        String?  @db.VarChar(64)
+  documentFilePath      String?  @db.VarChar(512)
+  documentOriginalName  String?  @db.VarChar(255)
+  totalValue       Decimal? @db.Decimal(18, 2)
+  notes            String?  @db.Text
+  userId           String?
+  user             User?    @relation("ExitUser", fields: [userId], references: [id], onDelete: SetNull)
+  exitedAt         DateTime @default(now())
+  createdAt        DateTime @default(now())
+
+  items     StockExitItem[]
+  movements StockMovement[]
+
+  @@index([tenantId, exitedAt])
+  @@index([establishmentId])
+}
+
+model StockExitItem {
+  id         String   @id @default(uuid())
+  stockExitId String
+  stockExit  StockExit @relation(fields: [stockExitId], references: [id], onDelete: Cascade)
+  materialId String
+  material   RecyclableMaterial @relation(fields: [materialId], references: [id], onDelete: Restrict)
+  quantity   Decimal  @db.Decimal(18, 6)
+  unitPrice  Decimal? @db.Decimal(18, 4)
+  lineTotal  Decimal? @db.Decimal(18, 2)
+  /// Saldo no depósito de origem imediatamente antes desta saída (mesma base usada na validação).
+  depositBalanceBeforeExit Decimal? @db.Decimal(18, 6)
+
+  @@index([stockExitId])
+}
+
+model SystemParameter {
+  id        String   @id @default(uuid())
+  tenantId  String
+  tenant    Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  key       String   @db.VarChar(128)
+  value     Json
+  version   Int      @default(1)
+  updatedAt DateTime @updatedAt
+
+  @@unique([tenantId, key])
+}
+
+model CustomReport {
+  id          String   @id @default(uuid())
+  tenantId    String
+  tenant      Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  name        String
+  description String?  @db.Text
+  definition  Json
+  active      Boolean  @default(true)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@index([tenantId])
+}
+
+model SchemaVersion {
+  tenantId  String   @id
+  tenant    Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  version   String   @db.VarChar(32)
+  appliedAt DateTime @default(now())
+}
+
+model SystemLog {
+  id        String   @id @default(uuid())
+  level     String   @db.VarChar(16)
+  context   String?  @db.VarChar(128)
+  message   String   @db.Text
+  meta      Json?
+  createdAt DateTime @default(now())
+
+  @@index([createdAt])
+  @@index([level])
+}
