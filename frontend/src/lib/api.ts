@@ -112,6 +112,37 @@ export async function apiBlob(path: string, opts?: { skipAuthRedirect?: boolean 
     }
     throw new Error(msg);
   }
+   return res.blob();
+}
+
+/** POST que retorna binário (ex.: download de backup). */
+export async function apiBlobPost(
+  path: string,
+  body: Record<string, unknown> = {},
+  opts?: { skipAuthRedirect?: boolean },
+): Promise<Blob> {
+  const token = getToken();
+  const res = await fetch(`${API_BASE}${path}`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      ...(token ? { Authorization: `Bearer ${token}` } : {}),
+    },
+    body: JSON.stringify(body),
+  });
+  if (res.status === 401 && !opts?.skipAuthRedirect) {
+    clearSessionAndRedirectToLogin();
+  }
+  if (!res.ok) {
+    let msg = res.statusText;
+    try {
+      const j = await res.json();
+      msg = j.message ?? JSON.stringify(j);
+    } catch {
+      /* ignore */
+    }
+    throw new Error(msg);
+  }
   return res.blob();
 }
 

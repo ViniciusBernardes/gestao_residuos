@@ -23,6 +23,7 @@ const RESOURCE_MAP: Record<string, AuditResourcePresentation> = {
   SystemParameter: { menu: 'Administração', title: 'Parâmetro do sistema' },
   CustomReport: { menu: 'Administração', title: 'Relatório personalizado' },
   Tenant: { menu: 'Administração', title: 'Município (tenant)' },
+  backup: { menu: 'Administração', title: 'Backup de dados' },
 };
 
 /** Exibe o nome técnico só quando não há mapeamento (novos recursos). */
@@ -55,6 +56,7 @@ const ACTION_LABELS: Record<string, string> = {
   STOCK_ADJUSTMENT: 'Ajuste de estoque',
   PARAM_SET: 'Definir parâmetro',
   IMPORT_MATERIALS_CSV: 'Importar materiais (CSV)',
+  BACKUP_EXPORT: 'Exportar backup (JSON)',
 };
 
 export function formatAuditAction(action: string): string {

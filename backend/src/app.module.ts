@@ -24,6 +24,7 @@ import { AdminModule } from './modules/admin/admin.module';
 import { HealthModule } from './modules/health/health.module';
 import { PermissionsModule } from './modules/permissions/permissions.module';
 import { PermissionProfilesModule } from './modules/permission-profiles/permission-profiles.module';
+import { BackupModule } from './modules/backup/backup.module';
 
 @Module({
   imports: [
@@ -53,6 +54,7 @@ import { PermissionProfilesModule } from './modules/permission-profiles/permissi
     ImportModule,
     AuditModule,
     AdminModule,
+    BackupModule,
     HealthModule,
   ],
   providers: [

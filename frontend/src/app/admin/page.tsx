@@ -6,7 +6,7 @@ import { useCallback, useEffect, useState } from 'react';
 import { ListRowActions } from '@/components/ListRowActions';
 import { PaginationBar } from '@/components/PaginationBar';
 import { readUserFullAccess } from '@/lib/access';
-import { api, getToken } from '@/lib/api';
+import { apiBlobPost, getToken } from '@/lib/api';
 import { fetchPaginated } from '@/lib/paginated-api';
 import { canEdit, canView } from '@/lib/permissions';
 import { PAGE_SIZE, type Paginated } from '@/lib/types';
@@ -34,6 +34,8 @@ export default function AdminMunicipiosPage() {
   const [data, setData] = useState<Paginated<Row>>(empty);
   const [err, setErr] = useState('');
   const [loading, setLoading] = useState(true);
+  const [backupLoading, setBackupLoading] = useState(false);
+  const [backupErr, setBackupErr] = useState('');
   const canList = canView('admin');
   const canMutate = canEdit('admin');
   const canCreate = readUserFullAccess();
@@ -60,6 +62,27 @@ export default function AdminMunicipiosPage() {
     }
     load();
   }, [router, load, canList]);
+
+  async function downloadBackup() {
+    setBackupErr('');
+    setBackupLoading(true);
+    try {
+      const blob = await apiBlobPost('/backup/export', {});
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `gestao-residuos-backup-${new Date().toISOString().slice(0, 19).replace(/[:T]/g, '-')}.json`;
+      a.rel = 'noopener';
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      URL.revokeObjectURL(url);
+    } catch (e) {
+      setBackupErr(e instanceof Error ? e.message : 'Erro ao gerar backup');
+    } finally {
+      setBackupLoading(false);
+    }
+  }
 
   if (!getToken()) return null;
 
@@ -88,6 +111,25 @@ export default function AdminMunicipiosPage() {
           </Link>
         )}
       </div>
+      {canMutate && (
+        <div className="rounded-xl border border-slate-200 bg-white shadow-sm p-5 mb-6">
+          <h2 className="text-sm font-semibold text-slate-800">Backup dos dados</h2>
+          <p className="text-slate-600 text-sm mt-1 max-w-3xl">
+            Gera um arquivo JSON com materiais (tipos e unidades), ramos e estabelecimentos, saldos e movimentações
+            de estoque, saídas com itens, perfis de permissão e usuários (sem{' '}
+            <span className="font-mono text-xs">passwordHash</span>). A exportação fica registrada na auditoria.
+          </p>
+          {backupErr && <p className="text-red-600 text-sm mt-2">{backupErr}</p>}
+          <button
+            type="button"
+            className="mt-3 rounded-lg bg-slate-800 px-4 py-2.5 text-sm font-medium text-white hover:bg-slate-900 disabled:opacity-60"
+            onClick={() => void downloadBackup()}
+            disabled={backupLoading}
+          >
+            {backupLoading ? 'Gerando…' : 'Baixar backup (JSON)'}
+          </button>
+        </div>
+      )}
       {err && <p className="text-red-600 text-sm mb-4">{err}</p>}
       <div className="rounded-xl border border-slate-200 bg-white shadow-sm overflow-hidden">
         <table className="w-full text-sm">

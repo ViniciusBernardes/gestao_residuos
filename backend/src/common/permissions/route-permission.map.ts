@@ -31,6 +31,7 @@ export function resolveRoutePermission(
     { prefix: 'reports', key: 'relatorios' },
     { prefix: 'audit', key: 'auditoria' },
     { prefix: 'admin', key: 'admin' },
+    { prefix: 'backup', key: 'admin' },
     { prefix: 'import', key: 'materiais' },
     { prefix: 'tracking', key: 'materiais' },
     { prefix: 'tenants', key: 'admin' },
