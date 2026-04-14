@@ -11,3 +11,54 @@ body {
   color: var(--foreground);
   background: var(--background);
 }
+
+/**
+ * Link “Pular para o conteúdo”: fora da tela até receber foco (Tab),
+ * para permitir operação só com teclado sem poluir o layout.
+ */
+.skip-to-content {
+  position: fixed;
+  left: 1rem;
+  top: 0;
+  z-index: 100;
+  transform: translateY(-120%);
+  padding: 0.5rem 1rem;
+  border-radius: 0.5rem;
+  background: #fff;
+  color: #0f172a;
+  font-size: 0.875rem;
+  font-weight: 500;
+  box-shadow:
+    0 10px 15px -3px rgb(0 0 0 / 0.1),
+    0 4px 6px -4px rgb(0 0 0 / 0.1);
+  outline: 2px solid #059669;
+  outline-offset: 2px;
+  transition: transform 0.15s ease;
+}
+
+.skip-to-content:focus {
+  transform: translateY(1rem);
+}
+
+.skip-to-content:focus-visible {
+  transform: translateY(1rem);
+}
+
+/* Foco visível no conteúdo (menu lateral usa ring branco no Shell). */
+@layer base {
+  input:not([type='hidden']):focus-visible,
+  select:focus-visible,
+  textarea:focus-visible {
+    outline: 2px solid #059669;
+    outline-offset: 2px;
+  }
+  main a:focus-visible,
+  main button:focus-visible,
+  main summary:focus-visible,
+  main [role='button']:focus-visible,
+  main [role='tab']:focus-visible,
+  main [role='menuitem']:focus-visible {
+    outline: 2px solid #059669;
+    outline-offset: 2px;
+  }
+}

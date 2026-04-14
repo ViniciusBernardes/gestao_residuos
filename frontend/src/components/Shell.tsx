@@ -2,83 +2,35 @@
 
 import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
-import { ReactNode, useEffect, useMemo, useState } from 'react';
+import { ReactNode, useEffect, useMemo, useRef, useState } from 'react';
 import { getToken, setToken } from '@/lib/api';
+import { isTypingTarget } from '@/lib/is-typing-target';
 import type { PermissionModuleKey } from '@/lib/permission-keys';
-import { canView, refreshPermissionsFromMe } from '@/lib/permissions';
+import { GO_FORM_ROUTES, resolveEditUrl } from '@/lib/go-shortcuts';
+import {
+  SHELL_NAV,
+  type ShellNavEntry as NavEntry,
+  type ShellNavLink as NavLink,
+} from '@/lib/shell-nav';
+import { canEdit, canView, refreshPermissionsFromMe } from '@/lib/permissions';
 
-type NavLink = { href: string; label: string; perm?: PermissionModuleKey };
+type GoRouteDest = {
+  href: string;
+  label: string;
+  perm?: PermissionModuleKey;
+  requiresEditPerm?: boolean;
+};
 
-type NavEntry =
-  | { type: 'link'; href: string; label: string; perm?: PermissionModuleKey }
-  | { type: 'group'; label: string; items: NavLink[] };
-
-const nav: NavEntry[] = [
-  { type: 'link', href: '/dashboard', label: 'Dashboard', perm: 'dashboard' },
-  
-  { type: 'link', href: '/materiais', label: 'Materiais', perm: 'materiais' },
-  { type: 'link', href: '/estabelecimentos', label: 'Depósito/Destino Final', perm: 'estabelecimentos' },
-  { type: 'link', href: '/estoque', label: 'Estoque', perm: 'estoque' },
-  { type: 'link', href: '/saidas', label: 'Saídas', perm: 'saidas' },
-  { type: 'link', href: '/usuarios', label: 'Usuários', perm: 'usuarios' },
-  {
-    type: 'group',
-    label: 'Relatórios',
-    items: [
-      /*{ href: '/relatorios', label: 'Downloads', perm: 'relatorios' },*/
-      {
-        href: '/relatorios/analitico-geral',
-        label: 'Geral',
-        perm: 'relatorios',
-      },
-      {
-        href: '/relatorios/analitico-por-deposito',
-        label: 'Por Depósito',
-        perm: 'relatorios',
-      },
-      {
-        href: '/relatorios/estoque-geral',
-        label: 'Materiais em Estoque',
-        perm: 'relatorios',
-      },
-      {
-        href: '/relatorios/vendas-classe-material',
-        label: 'Gráficos vendas',
-        perm: 'relatorios',
-      },
-      {
-        href: '/relatorios/vendas-historico-mensal',
-        label: 'Histórico mensal vendas',
-        perm: 'relatorios',
-      },
-    ],
-  },
-  { type: 'link', href: '/auditoria', label: 'Auditoria', perm: 'auditoria' },
-  { type: 'link', href: '/admin', label: 'Administração', perm: 'admin' },
-  {
-    type: 'group',
-    label: 'Configurações',
-    items: [
-      { href: '/configuracoes/ramos-atividade', label: 'Ramos de atividade', perm: 'config_ramos' },
-      { href: '/tipos-material', label: 'Tipos de material', perm: 'config_tipos_material' },
-      { href: '/unidades', label: 'Unidades', perm: 'config_unidades' },
-      {
-        href: '/configuracoes/perfis-permissao',
-        label: 'Perfis de permissão',
-        perm: 'permissoes',
-      },
-    ],
-  },
-];
+const linkFocusClass =
+  'focus:outline-none focus-visible:ring-2 focus-visible:ring-white focus-visible:ring-offset-2 focus-visible:ring-offset-brand-900';
 
 function linkActive(pathname: string, href: string) {
   if (pathname === href) return true;
-  /** Evita marcar "Downloads" ao estar em /relatorios/… */
   if (href === '/relatorios') return false;
   return pathname.startsWith(`${href}/`);
 }
 
-function navLinkVisible(link: NavLink): boolean {
+function navLinkVisible(link: Pick<NavLink, 'perm'>): boolean {
   if (!link.perm) return true;
   return canView(link.perm);
 }
@@ -89,8 +41,15 @@ export function Shell({ children }: { children: ReactNode }) {
   const [userName, setUserName] = useState<string>('');
   const [permTick, setPermTick] = useState(0);
   const [mounted, setMounted] = useState(false);
-  /** Aberto/fechado por grupo; ao entrar numa rota filha o efeito limpa a chave para reabrir o grupo. */
   const [navGroupOpen, setNavGroupOpen] = useState<Record<string, boolean>>({});
+  const [helpOpen, setHelpOpen] = useState(false);
+  const dialogRef = useRef<HTMLDialogElement>(null);
+  const goPendingRef = useRef(false);
+  const goTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const helpOpenRef = useRef(false);
+  const goRoutesRef = useRef(new Map<string, GoRouteDest>());
+
+  helpOpenRef.current = helpOpen;
 
   useEffect(() => {
     setMounted(true);
@@ -120,22 +79,82 @@ export function Shell({ children }: { children: ReactNode }) {
 
   const filteredNav = useMemo(() => {
     void permTick;
-    return nav
-      .map((entry) => {
+    return SHELL_NAV.map((entry) => {
         if (entry.type === 'link') {
-          if (!navLinkVisible({ href: entry.href, label: entry.label, perm: entry.perm })) {
+          if (!navLinkVisible({ perm: entry.perm })) {
             return null;
           }
           return entry;
         }
-        const items = entry.items.filter((sub) =>
-          navLinkVisible({ href: sub.href, label: sub.label, perm: sub.perm }),
-        );
+        const items = entry.items.filter((sub) => navLinkVisible({ perm: sub.perm }));
         if (items.length === 0) return null;
         return { ...entry, items };
       })
       .filter(Boolean) as NavEntry[];
   }, [permTick, pathname]);
+
+  const goRoutes = useMemo(() => {
+    const map = new Map<string, GoRouteDest>();
+    for (const entry of filteredNav) {
+      if (entry.type === 'link') {
+        map.set(entry.goKey.toLowerCase(), {
+          href: entry.href,
+          label: entry.label,
+          perm: entry.perm,
+          requiresEditPerm: false,
+        });
+      } else {
+        for (const sub of entry.items) {
+          map.set(sub.goKey.toLowerCase(), {
+            href: sub.href,
+            label: `${entry.label} › ${sub.label}`,
+            perm: sub.perm,
+            requiresEditPerm: false,
+          });
+        }
+      }
+    }
+    for (const row of GO_FORM_ROUTES) {
+      if (canEdit(row.perm)) {
+        map.set(row.key, {
+          href: row.href,
+          label: row.label,
+          perm: row.perm,
+          requiresEditPerm: true,
+        });
+      }
+    }
+    return map;
+  }, [filteredNav, permTick]);
+
+  goRoutesRef.current = goRoutes;
+
+  const shortcutRows = useMemo(() => {
+    const rows: { key: string; description: string }[] = [];
+    for (const entry of filteredNav) {
+      if (entry.type === 'link') {
+        rows.push({ key: entry.goKey.toUpperCase(), description: entry.label });
+      } else {
+        for (const sub of entry.items) {
+          rows.push({
+            key: sub.goKey.toUpperCase(),
+            description: `${entry.label} › ${sub.label}`,
+          });
+        }
+      }
+    }
+    for (const row of GO_FORM_ROUTES) {
+      if (canEdit(row.perm)) {
+        rows.push({ key: row.key, description: `Cadastrar: ${row.label}` });
+      }
+    }
+    rows.push({
+      key: 'E',
+      description:
+        'Editar: ficha aberta (ex.: material, saída, usuário) — só em tela de detalhe, com permissão de edição',
+    });
+    return rows;
+  }, [filteredNav, permTick]);
 
   useEffect(() => {
     setNavGroupOpen((prev) => {
@@ -149,6 +168,93 @@ export function Shell({ children }: { children: ReactNode }) {
       return next;
     });
   }, [pathname, filteredNav]);
+
+  useEffect(() => {
+    const d = dialogRef.current;
+    if (!d) return;
+    if (helpOpen && !d.open) {
+      d.showModal();
+    } else if (!helpOpen && d.open) {
+      d.close();
+    }
+  }, [helpOpen]);
+
+  useEffect(() => {
+    if (pathname === '/login' || !mounted) return;
+    if (!getToken()) return;
+
+    function onKeyDown(e: KeyboardEvent) {
+      if (e.defaultPrevented) return;
+      if (isTypingTarget(e.target)) return;
+
+      const help = helpOpenRef.current;
+
+      if (e.key === 'Escape' && help) {
+        e.preventDefault();
+        setHelpOpen(false);
+        return;
+      }
+
+      if (help) {
+        if (e.key === '?' || (e.key === '/' && e.shiftKey)) {
+          e.preventDefault();
+          setHelpOpen(false);
+        }
+        return;
+      }
+
+      if (!e.ctrlKey && !e.altKey && !e.metaKey) {
+        if (e.key === '?' || (e.key === '/' && e.shiftKey)) {
+          e.preventDefault();
+          setHelpOpen(true);
+          return;
+        }
+      }
+
+      if (e.ctrlKey || e.altKey || e.metaKey) return;
+
+      if (goPendingRef.current) {
+        if (goTimerRef.current) clearTimeout(goTimerRef.current);
+        const ch = e.key.length === 1 ? e.key.toLowerCase() : '';
+
+        if (ch === 'e') {
+          e.preventDefault();
+          goPendingRef.current = false;
+          const edit = resolveEditUrl(pathname);
+          if (edit && canEdit(edit.perm)) router.push(edit.href);
+          return;
+        }
+
+        if (ch && /[a-z0-9]/.test(ch)) {
+          e.preventDefault();
+          goPendingRef.current = false;
+          const dest = goRoutesRef.current.get(ch);
+          if (dest) {
+            const ok = dest.requiresEditPerm
+              ? canEdit(dest.perm ?? '')
+              : navLinkVisible({ perm: dest.perm });
+            if (ok) router.push(dest.href);
+          }
+          return;
+        }
+
+        goPendingRef.current = false;
+        return;
+      }
+
+      if (e.key === 'g' || e.key === 'G') {
+        e.preventDefault();
+        goPendingRef.current = true;
+        if (goTimerRef.current) clearTimeout(goTimerRef.current);
+        goTimerRef.current = setTimeout(() => {
+          goPendingRef.current = false;
+        }, 1200);
+      }
+    }
+
+    document.addEventListener('keydown', onKeyDown);
+    return () => document.removeEventListener('keydown', onKeyDown);
+  }, [router, pathname, mounted]);
 
   function logout() {
     setToken(null);
@@ -171,12 +277,18 @@ export function Shell({ children }: { children: ReactNode }) {
 
   return (
     <div className="min-h-screen flex bg-slate-50">
-      <aside className="w-56 bg-brand-900 text-white flex flex-col shrink-0">
+      <a
+        href="#conteudo-principal"
+        className="skip-to-content"
+      >
+        Pular para o conteúdo
+      </a>
+      <aside className="w-56 bg-brand-900 text-white flex flex-col shrink-0" aria-label="Menu principal">
         <div className="p-4 border-b border-brand-700">
           <div className="font-semibold text-sm">Gestão de Resíduos</div>
           <div className="text-xs text-brand-100 truncate">{userName}</div>
         </div>
-        <nav className="flex-1 p-2 space-y-1 overflow-y-auto">
+        <nav className="flex-1 p-2 space-y-1 overflow-y-auto" aria-label="Navegação">
           {filteredNav.map((entry) => {
             if (entry.type === 'link') {
               const active = linkActive(pathname, entry.href);
@@ -184,9 +296,9 @@ export function Shell({ children }: { children: ReactNode }) {
                 <Link
                   key={entry.href}
                   href={entry.href}
-                  className={`block rounded px-3 py-2 text-sm ${
-                    active ? 'bg-brand-700' : 'hover:bg-brand-800'
-                  }`}
+                  className={`block rounded px-3 py-2 text-sm ${active ? 'bg-brand-700' : 'hover:bg-brand-800'} ${linkFocusClass}`}
+                  aria-current={active ? 'page' : undefined}
+                  title={`Atalho: G ${entry.goKey.toUpperCase()}`}
                 >
                   {entry.label}
                 </Link>
@@ -200,7 +312,7 @@ export function Shell({ children }: { children: ReactNode }) {
               <div key={entry.label} className="pt-1">
                 <button
                   type="button"
-                  className={`w-full flex items-center justify-between gap-2 rounded px-3 py-1.5 text-left text-xs font-semibold uppercase tracking-wide transition-colors ${
+                  className={`w-full flex items-center justify-between gap-2 rounded px-3 py-1.5 text-left text-xs font-semibold uppercase tracking-wide transition-colors ${linkFocusClass} ${
                     groupHasActive ? 'text-brand-100' : 'text-brand-300/90'
                   } hover:bg-brand-800/60`}
                   aria-expanded={expanded}
@@ -214,7 +326,7 @@ export function Shell({ children }: { children: ReactNode }) {
                 >
                   <span>{entry.label}</span>
                   <span className="text-[10px] opacity-80 shrink-0" aria-hidden>
-                    {expanded ? '▼' : '▶'}
+                    {expanded ? '\u25BC' : '\u25B6'}
                   </span>
                 </button>
                 {expanded ? (
@@ -225,9 +337,9 @@ export function Shell({ children }: { children: ReactNode }) {
                         <li key={sub.href}>
                           <Link
                             href={sub.href}
-                            className={`block rounded px-3 py-2 text-sm ${
-                              active ? 'bg-brand-700' : 'hover:bg-brand-800'
-                            }`}
+                            className={`block rounded px-3 py-2 text-sm ${active ? 'bg-brand-700' : 'hover:bg-brand-800'} ${linkFocusClass}`}
+                            aria-current={active ? 'page' : undefined}
+                            title={`Atalho: G ${sub.goKey.toUpperCase()}`}
                           >
                             {sub.label}
                           </Link>
@@ -243,14 +355,82 @@ export function Shell({ children }: { children: ReactNode }) {
         <button
           type="button"
           onClick={logout}
-          className="m-2 mt-auto rounded bg-brand-800 px-3 py-2 text-sm hover:bg-brand-700"
+          className={`m-2 mt-auto rounded bg-brand-800 px-3 py-2 text-sm hover:bg-brand-700 ${linkFocusClass}`}
         >
           Sair
         </button>
       </aside>
-      <main className="flex-1 overflow-auto">
+      <main
+        id="conteudo-principal"
+        tabIndex={-1}
+        className="flex-1 overflow-auto outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-brand-500"
+      >
         <div className="max-w-6xl mx-auto p-6">{children}</div>
       </main>
+
+      <dialog
+        ref={dialogRef}
+        className="max-w-lg w-[calc(100%-2rem)] rounded-xl border border-slate-200 bg-white p-0 text-slate-800 shadow-xl backdrop:bg-black/40"
+        onClose={() => setHelpOpen(false)}
+        onCancel={(e) => {
+          e.preventDefault();
+          setHelpOpen(false);
+        }}
+        aria-labelledby="atalhos-titulo"
+      >
+        <div className="p-5 border-b border-slate-100">
+          <h2 id="atalhos-titulo" className="text-lg font-semibold">
+            Atalhos de teclado
+          </h2>
+          <p className="text-sm text-slate-600 mt-1">
+            Use <kbd className="rounded border border-slate-300 bg-slate-50 px-1.5 py-0.5 text-xs font-mono">Tab</kbd>{' '}
+            para navegar entre controles. Pressione{' '}
+            <kbd className="rounded border border-slate-300 bg-slate-50 px-1.5 py-0.5 text-xs font-mono">?</kbd> para
+            abrir ou fechar esta ajuda.
+          </p>
+        </div>
+        <div className="p-5 max-h-[min(420px,55vh)] overflow-y-auto">
+          <p className="text-sm text-slate-700 mb-3">
+            Pressione{' '}
+            <kbd className="rounded border border-slate-300 bg-slate-50 px-1.5 py-0.5 text-xs font-mono">G</kbd> e em
+            seguida a tecla indicada (até ~1,2&nbsp;s): letras para telas do menu, dígitos{' '}
+            <kbd className="rounded border border-slate-300 bg-slate-50 px-1 font-mono text-xs">0</kbd>–
+            <kbd className="rounded border border-slate-300 bg-slate-50 px-1 font-mono text-xs">9</kbd> para cadastrar
+            (novo), <kbd className="rounded border border-slate-300 bg-slate-50 px-1 font-mono text-xs">E</kbd> para
+            editar a ficha em que você está (detalhe de um registro).
+          </p>
+          <table className="w-full text-sm border-collapse">
+            <thead>
+              <tr className="text-left text-slate-500 border-b border-slate-200">
+                <th className="py-2 pr-3 font-medium w-24">Atalho</th>
+                <th className="py-2 font-medium">Destino</th>
+              </tr>
+            </thead>
+            <tbody>
+              {shortcutRows.map((row) => (
+                <tr key={`${row.key}-${row.description}`} className="border-b border-slate-100">
+                  <td className="py-2 pr-3 align-top">
+                    <kbd className="rounded border border-slate-300 bg-slate-50 px-1.5 py-0.5 text-xs font-mono whitespace-nowrap">
+                      G {row.key}
+                    </kbd>
+                  </td>
+                  <td className="py-2 text-slate-800">{row.description}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+        <div className="p-4 border-t border-slate-100 flex justify-end bg-slate-50/80 rounded-b-xl">
+          <form method="dialog">
+            <button
+              type="submit"
+              className="rounded-lg bg-brand-600 px-4 py-2 text-sm font-medium text-white hover:bg-brand-700 focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-500 focus-visible:ring-offset-2"
+            >
+              Fechar
+            </button>
+          </form>
+        </div>
+      </dialog>
     </div>
   );
 }

@@ -84,12 +84,18 @@ export default function LoginPage() {
           <button
             type="submit"
             disabled={loading}
-            className="w-full rounded-lg bg-brand-600 text-white py-2.5 text-sm font-medium hover:bg-brand-700 disabled:opacity-50"
+            className="w-full rounded-lg bg-brand-600 text-white py-2.5 text-sm font-medium hover:bg-brand-700 disabled:opacity-50 focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-500 focus-visible:ring-offset-2"
           >
             {loading ? 'Entrando…' : 'Entrar'}
           </button>
         </form>
-        <p className="text-xs text-slate-400 mt-4 text-center">PoC — JWT + RBAC + LGPD (logs)</p>
+        <p className="text-xs text-slate-500 mt-4 text-center">
+          Use <kbd className="rounded border border-slate-200 bg-slate-50 px-1 font-mono text-[10px]">Tab</kbd> para
+          navegar entre os campos. Após entrar, pressione{' '}
+          <kbd className="rounded border border-slate-200 bg-slate-50 px-1 font-mono text-[10px]">?</kbd> para ver
+          atalhos de teclado.
+        </p>
+        <p className="text-xs text-slate-400 mt-2 text-center">PoC — JWT + RBAC + LGPD (logs)</p>
       </div>
     </div>
   );

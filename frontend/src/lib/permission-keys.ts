@@ -39,4 +39,6 @@ export const ROUTE_PERMISSION: Record<string, PermissionModuleKey> = {
   '/auditoria': 'auditoria',
   '/admin': 'admin',
   '/configuracoes/perfis-permissao': 'permissoes',
+  '/relatorios/vendas-classe-material': 'relatorios',
+  '/relatorios/vendas-historico-mensal': 'relatorios',
 };

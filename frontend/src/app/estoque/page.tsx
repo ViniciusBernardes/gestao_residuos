@@ -11,6 +11,7 @@ import { formatQty } from '@/lib/format-qty';
 import { fetchItemsForSelect, fetchPaginated } from '@/lib/paginated-api';
 import { canEdit } from '@/lib/permissions';
 import { PAGE_SIZE } from '@/lib/types';
+import { useEscapeKey } from '@/lib/use-escape-key';
 
 type Unit = { code: string; name: string };
 
@@ -401,6 +402,13 @@ export default function EstoquePage() {
       setQtySaving(false);
     }
   }
+
+  useEscapeKey(!!qtyEditRow, () => {
+    if (!qtySaving) closeQtyModal();
+  });
+  useEscapeKey(!!xferRow, () => {
+    if (!xferSaving) closeTransferModal();
+  });
 
   async function refreshAll() {
     if (!getToken()) return;
