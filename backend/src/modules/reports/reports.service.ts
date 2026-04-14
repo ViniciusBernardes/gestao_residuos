@@ -996,26 +996,40 @@ export class ReportsService {
           })),
       }));
 
-    const byMonth = Array.from(byMonthMap.entries())
-      .sort(([a], [b]) => a.localeCompare(b))
-      .map(([month, agg]) => {
-        const [y, moNum] = month.split('-').map(Number);
-        const monthLabel = new Date(y, moNum - 1, 15).toLocaleDateString('pt-BR', {
-          month: 'short',
-          year: 'numeric',
-        });
-        return {
-          month,
-          monthLabel,
-          revenueTotal: agg.revenue.toString(),
-          quantities: Array.from(agg.qtyByUnit.entries())
-            .sort(([ua], [ub]) => ua.localeCompare(ub, 'pt-BR'))
-            .map(([unitCode, quantity]) => ({
-              unitCode,
-              quantity: quantity.toString(),
-            })),
-        };
+    /** Todos os meses civis entre início e fim (como em recycled-sales-monthly-chart); meses sem venda em zero. */
+    const monthKeys: string[] = [];
+    const monthCursor = new Date(from.getFullYear(), from.getMonth(), 1);
+    const endMonth = new Date(to.getFullYear(), to.getMonth(), 1);
+    while (monthCursor <= endMonth) {
+      monthKeys.push(
+        `${monthCursor.getFullYear()}-${String(monthCursor.getMonth() + 1).padStart(2, '0')}`,
+      );
+      monthCursor.setMonth(monthCursor.getMonth() + 1);
+    }
+
+    const z = () => new Prisma.Decimal(0);
+    const byMonth = monthKeys.map((month) => {
+      const agg = byMonthMap.get(month);
+      const [y, moNum] = month.split('-').map(Number);
+      const monthLabel = new Date(y, moNum - 1, 15).toLocaleDateString('pt-BR', {
+        month: 'short',
+        year: 'numeric',
       });
+      return {
+        month,
+        monthLabel,
+        revenueTotal: (agg?.revenue ?? z()).toString(),
+        quantities:
+          agg == null
+            ? []
+            : Array.from(agg.qtyByUnit.entries())
+                .sort(([ua], [ub]) => ua.localeCompare(ub, 'pt-BR'))
+                .map(([unitCode, quantity]) => ({
+                  unitCode,
+                  quantity: quantity.toString(),
+                })),
+      };
+    });
 
     return {
       period: { from: from.toISOString(), to: to.toISOString() },
@@ -1161,8 +1175,10 @@ export class ReportsService {
   async dashboard(tenantId: string) {
     const end = new Date();
     const y = end.getFullYear();
+    const mo1 = end.getMonth() + 1;
+    const lastDayOfMonth = new Date(y, mo1, 0).getDate();
     const dateFrom = `${y}-01-01`;
-    const dateTo = `${y}-${String(end.getMonth() + 1).padStart(2, '0')}-${String(end.getDate()).padStart(2, '0')}`;
+    const dateTo = `${y}-${String(mo1).padStart(2, '0')}-${String(lastDayOfMonth).padStart(2, '0')}`;
 
     const [balanceAgg, movementCount, revenue, deposits, materials, monthlyHistory] = await Promise.all([
       this.prisma.stockBalance.aggregate({

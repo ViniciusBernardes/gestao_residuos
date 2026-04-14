@@ -1,7 +1,7 @@
 'use client';
 
 import Link from 'next/link';
-import { Fragment, FormEvent, useCallback, useEffect, useState } from 'react';
+import { Fragment, FormEvent, useEffect, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { BrDecimalInput } from '@/components/BrDecimalInput';
 import { PaginationBar } from '@/components/PaginationBar';
@@ -44,6 +44,15 @@ type Breakdown = {
 type StockBreakdownLite = {
   perDeposit: { depositId: string; depositName: string; quantity: string }[];
 };
+
+type SearchScope = 'all' | 'material' | 'unit' | 'deposit';
+
+const SEARCH_SCOPE_OPTIONS: { value: SearchScope; label: string }[] = [
+  { value: 'all', label: 'Todos' },
+  { value: 'material', label: 'Material' },
+  { value: 'unit', label: 'Unidade' },
+  { value: 'deposit', label: 'Galpão' },
+];
 
 function movementKindLabel(type: string): string {
   switch (type) {
@@ -137,30 +146,63 @@ export default function EstoquePage() {
   const [xferQty, setXferQty] = useState('');
   const [xferRef, setXferRef] = useState('');
 
-  const loadOverview = useCallback(() => {
-    if (!getToken()) return;
-    setLoading(true);
-    setErr('');
-    fetchPaginated<OverviewRow>('/stock/overview/materials', page, PAGE_SIZE)
-      .then((r) =>
-        setOverview({
-          items: r.items,
-          total: r.total,
-          totalPages: r.totalPages,
-          limit: r.limit,
-        }),
-      )
-      .catch((e) => setErr(e instanceof Error ? e.message : 'Erro'))
-      .finally(() => setLoading(false));
-  }, [page]);
+  const [searchInput, setSearchInput] = useState('');
+  const [scopeDraft, setScopeDraft] = useState<SearchScope>('all');
+  const [scopeMenuOpen, setScopeMenuOpen] = useState(false);
+  const scopeMenuRef = useRef<HTMLDivElement>(null);
+  const [appliedQuery, setAppliedQuery] = useState('');
+  const [appliedScope, setAppliedScope] = useState<SearchScope>('all');
+
+  useEffect(() => {
+    if (!scopeMenuOpen) return;
+    function onDocMouseDown(e: MouseEvent) {
+      if (!scopeMenuRef.current?.contains(e.target as Node)) setScopeMenuOpen(false);
+    }
+    document.addEventListener('mousedown', onDocMouseDown);
+    return () => document.removeEventListener('mousedown', onDocMouseDown);
+  }, [scopeMenuOpen]);
+
+  function submitSearch(e: FormEvent) {
+    e.preventDefault();
+    const term = searchInput.trim();
+    setAppliedQuery(term);
+    setAppliedScope(scopeDraft);
+    setPage(1);
+    setExpandedId(null);
+    setBreakdown(null);
+  }
 
   useEffect(() => {
     if (!getToken()) {
       router.replace('/login');
       return;
     }
-    loadOverview();
-  }, [router, loadOverview]);
+    let stale = false;
+    setLoading(true);
+    setErr('');
+    fetchPaginated<OverviewRow>('/stock/overview/materials', page, PAGE_SIZE, {
+      q: appliedQuery || undefined,
+      ...(appliedQuery ? { scope: appliedScope } : {}),
+    })
+      .then((r) => {
+        if (stale) return;
+        setOverview({
+          items: r.items,
+          total: r.total,
+          totalPages: r.totalPages,
+          limit: r.limit,
+        });
+      })
+      .catch((e) => {
+        if (!stale) setErr(e instanceof Error ? e.message : 'Erro');
+      })
+      .finally(() => {
+        if (!stale) setLoading(false);
+      });
+    return () => {
+      stale = true;
+    };
+  }, [router, page, appliedQuery, appliedScope]);
 
   async function toggleRow(materialId: string) {
     if (expandedId === materialId) {
@@ -361,7 +403,25 @@ export default function EstoquePage() {
   }
 
   async function refreshAll() {
-    loadOverview();
+    if (!getToken()) return;
+    setLoading(true);
+    setErr('');
+    try {
+      const r = await fetchPaginated<OverviewRow>('/stock/overview/materials', page, PAGE_SIZE, {
+        q: appliedQuery || undefined,
+        ...(appliedQuery ? { scope: appliedScope } : {}),
+      });
+      setOverview({
+        items: r.items,
+        total: r.total,
+        totalPages: r.totalPages,
+        limit: r.limit,
+      });
+    } catch (e) {
+      setErr(e instanceof Error ? e.message : 'Erro');
+    } finally {
+      setLoading(false);
+    }
     if (expandedId) {
       setBreakdownLoading(true);
       try {
@@ -397,6 +457,91 @@ export default function EstoquePage() {
       </div>
       {err && <p className="text-red-600 text-sm">{err}</p>}
 
+      <form
+        onSubmit={submitSearch}
+        className="flex w-full rounded-lg border border-slate-300 bg-white shadow-sm"
+        aria-label="Buscar estoque"
+      >
+        <div className="relative z-30 shrink-0" ref={scopeMenuRef}>
+          <button
+            type="button"
+            className="flex h-full min-h-[46px] items-center gap-2 rounded-l-lg border-r border-slate-600 bg-slate-700 px-3 py-2.5 text-sm font-medium text-white hover:bg-slate-800 sm:gap-2.5 sm:px-4"
+            aria-expanded={scopeMenuOpen}
+            aria-haspopup="listbox"
+            onClick={() => setScopeMenuOpen((o) => !o)}
+          >
+            <svg className="h-4 w-4 shrink-0 opacity-90" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                strokeWidth={2}
+                d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"
+              />
+            </svg>
+            <span className="max-w-[5.5rem] truncate sm:max-w-[7rem]">
+              {SEARCH_SCOPE_OPTIONS.find((o) => o.value === scopeDraft)?.label}
+            </span>
+            <svg className="h-3.5 w-3.5 shrink-0 opacity-80" fill="currentColor" viewBox="0 0 20 20">
+              <path d="M5.293 7.293a1 1 0 011.414 0L10 10.586l3.293-3.293a1 1 0 111.414 1.414l-4 4a1 1 0 01-1.414 0l-4-4a1 1 0 010-1.414z" />
+            </svg>
+          </button>
+          {scopeMenuOpen && (
+            <ul
+              className="absolute left-0 top-full z-50 mt-1 min-w-[220px] rounded-lg border border-slate-200 bg-white py-1 shadow-lg"
+              role="listbox"
+            >
+              {SEARCH_SCOPE_OPTIONS.map((opt) => (
+                <li key={opt.value}>
+                  <button
+                    type="button"
+                    role="option"
+                    aria-selected={scopeDraft === opt.value}
+                    className={`w-full px-4 py-2.5 text-left text-sm hover:bg-slate-50 ${
+                      scopeDraft === opt.value ? 'bg-brand-50 font-medium text-brand-800' : 'text-slate-800'
+                    }`}
+                    onClick={() => {
+                      setScopeDraft(opt.value);
+                      setScopeMenuOpen(false);
+                    }}
+                  >
+                    {opt.label}
+                  </button>
+                </li>
+              ))}
+            </ul>
+          )}
+        </div>
+        <input
+          id="estoque-busca"
+          type="search"
+          placeholder="Escolha o filtro à esquerda e clique em Buscar"
+          autoComplete="off"
+          className="min-w-0 flex-1 border-0 px-4 py-2.5 text-sm text-slate-800 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-inset focus:ring-brand-500"
+          value={searchInput}
+          onChange={(e) => setSearchInput(e.target.value)}
+        />
+        <button
+          type="submit"
+          className="shrink-0 rounded-r-lg border-l border-brand-700 bg-brand-600 px-6 py-2.5 text-sm font-bold uppercase tracking-wide text-white hover:bg-brand-700"
+        >
+          Buscar
+        </button>
+      </form>
+      <p className="w-full text-xs text-slate-500">
+        Filtro atual na lista:{' '}
+        <span className="font-medium text-slate-600">
+          {SEARCH_SCOPE_OPTIONS.find((o) => o.value === appliedScope)?.label ?? 'Todos'}
+        </span>
+        {appliedQuery ? (
+          <>
+            {' '}
+            · termo «<span className="font-mono text-slate-700">{appliedQuery}</span>»
+          </>
+        ) : (
+          ' · sem termo (lista completa)'
+        )}
+      </p>
+
       <div className="rounded-xl border border-slate-200 bg-white overflow-hidden shadow-sm">
         <table className="w-full text-sm">
           <thead className="bg-slate-50 text-left text-slate-600">
@@ -419,7 +564,9 @@ export default function EstoquePage() {
             ) : overview.items.length === 0 ? (
               <tr>
                 <td colSpan={6} className="px-4 py-8 text-center text-slate-500">
-                  Nenhum material cadastrado.
+                  {appliedQuery
+                    ? 'Nenhum material encontrado para esta busca.'
+                    : 'Nenhum material cadastrado.'}
                 </td>
               </tr>
             ) : (
@@ -607,6 +754,7 @@ export default function EstoquePage() {
             setPage(p);
             setExpandedId(null);
             setBreakdown(null);
+            window.scrollTo({ top: 0, behavior: 'smooth' });
           }}
         />
       </div>

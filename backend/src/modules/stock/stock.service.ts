@@ -81,10 +81,59 @@ export class StockService {
     return toPaginated(items, total, p, l);
   }
 
-  /** Visão por material: totais e depósitos com saldo &gt; 0 (listagem principal do estoque). */
-  async materialOverview(tenantId: string, page?: string, limit?: string) {
+  /** Visão por material: totais e depósitos com saldo &gt;0 (listagem principal do estoque). */
+  async materialOverview(
+    tenantId: string,
+    page?: string,
+    limit?: string,
+    search?: string,
+    scopeRaw?: string,
+  ) {
     const { page: p, limit: l, skip } = parsePageLimit(page, limit, 20, 100);
-    const whereMat = { tenantId, active: true };
+    const q = search?.trim();
+    const mode = Prisma.QueryMode.insensitive;
+    const sc = (scopeRaw ?? 'all').toLowerCase();
+    const scope = ['all', 'material', 'unit', 'deposit'].includes(sc) ? sc : 'all';
+
+    let whereMat: Prisma.RecyclableMaterialWhereInput;
+    if (!q) {
+      whereMat = { tenantId, active: true };
+    } else {
+      const materialClauses: Prisma.RecyclableMaterialWhereInput[] = [
+        { name: { contains: q, mode } },
+        { code: { contains: q, mode } },
+      ];
+      const unitClauses: Prisma.RecyclableMaterialWhereInput[] = [
+        {
+          unit: {
+            OR: [{ code: { contains: q, mode } }, { name: { contains: q, mode } }],
+          },
+        },
+      ];
+      const depositClauses: Prisma.RecyclableMaterialWhereInput[] = [
+        {
+          balances: {
+            some: {
+              tenantId,
+              establishment: {
+                OR: [{ tradeName: { contains: q, mode } }, { code: { contains: q, mode } }],
+              },
+            },
+          },
+        },
+      ];
+      let orList: Prisma.RecyclableMaterialWhereInput[];
+      if (scope === 'material') {
+        orList = materialClauses;
+      } else if (scope === 'unit') {
+        orList = unitClauses;
+      } else if (scope === 'deposit') {
+        orList = depositClauses;
+      } else {
+        orList = [...materialClauses, ...unitClauses, ...depositClauses];
+      }
+      whereMat = { tenantId, active: true, OR: orList };
+    }
     const [materials, total] = await Promise.all([
       this.prisma.recyclableMaterial.findMany({
         where: whereMat,

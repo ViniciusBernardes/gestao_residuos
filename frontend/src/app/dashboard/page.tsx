@@ -107,9 +107,9 @@ export default function DashboardPage() {
               </Link>
             </div>
             <p className="text-slate-500 text-sm mt-1 mb-4">
-              Mesma base do relatório de vendas de reciclados: saídas (EXIT) no ano em curso, todos os depósitos;
-              receita somada a partir dos valores informados nos itens de cada saída. Meses sem movimento aparecem
-              em zero.
+              Mesma base do relatório de vendas de reciclados: saídas (EXIT) de 1º de janeiro até o último dia do mês
+              atual, todos os depósitos; receita somada a partir dos valores informados nos itens de cada saída. Meses
+              sem movimento aparecem em zero.
             </p>
             {chartData.length === 0 ? (
               <p className="text-sm text-slate-500 py-8 text-center">

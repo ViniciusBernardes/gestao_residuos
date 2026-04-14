@@ -3,7 +3,7 @@
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { useEffect } from 'react';
-import { API_BASE, getToken } from '@/lib/api';
+import { API_BASE, apiBlob, getToken } from '@/lib/api';
 
 export default function RelatoriosPage() {
   const router = useRouter();
@@ -13,8 +13,6 @@ export default function RelatoriosPage() {
   }, [router]);
 
   if (!getToken()) return null;
-
-  const token = typeof window !== 'undefined' ? localStorage.getItem('token') : '';
 
   return (
     <div>
@@ -72,10 +70,7 @@ export default function RelatoriosPage() {
             href={`${API_BASE}/reports/export/stock.pdf`}
             onClick={(e) => {
               e.preventDefault();
-              fetch(`${API_BASE}/reports/export/stock.pdf`, {
-                headers: { Authorization: `Bearer ${token}` },
-              })
-                .then((r) => r.blob())
+              void apiBlob('/reports/export/stock.pdf')
                 .then((blob) => {
                   const url = URL.createObjectURL(blob);
                   const a = document.createElement('a');
@@ -83,7 +78,8 @@ export default function RelatoriosPage() {
                   a.download = 'estoque.pdf';
                   a.click();
                   URL.revokeObjectURL(url);
-                });
+                })
+                .catch(() => {});
             }}
           >
             Baixar estoque (PDF)
@@ -93,10 +89,7 @@ export default function RelatoriosPage() {
             href={`${API_BASE}/reports/export/movements.xlsx`}
             onClick={(e) => {
               e.preventDefault();
-              fetch(`${API_BASE}/reports/export/movements.xlsx`, {
-                headers: { Authorization: `Bearer ${token}` },
-              })
-                .then((r) => r.blob())
+              void apiBlob('/reports/export/movements.xlsx')
                 .then((blob) => {
                   const url = URL.createObjectURL(blob);
                   const a = document.createElement('a');
@@ -104,7 +97,8 @@ export default function RelatoriosPage() {
                   a.download = 'movimentacoes.xlsx';
                   a.click();
                   URL.revokeObjectURL(url);
-                });
+                })
+                .catch(() => {});
             }}
           >
             Baixar movimentações (Excel)

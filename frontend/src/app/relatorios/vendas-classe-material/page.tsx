@@ -18,6 +18,7 @@ import {
 import { api, getToken } from '@/lib/api';
 import { formatBrDecimal, parseBrDecimal } from '@/lib/br-decimal';
 import { fetchItemsForSelect } from '@/lib/paginated-api';
+import { endOfMonthYmd, endOfMonthYmdFromPicker, localYmd } from '@/lib/report-dates';
 import { canView } from '@/lib/permissions';
 
 type QtyRow = { unitCode: string; quantity: string };
@@ -41,13 +42,6 @@ type ChartPayload = {
   byMaterialClass: ClassRow[];
   byMonth: MonthRow[];
 };
-
-function localYmd(d: Date): string {
-  const y = d.getFullYear();
-  const m = String(d.getMonth() + 1).padStart(2, '0');
-  const day = String(d.getDate()).padStart(2, '0');
-  return `${y}-${m}-${day}`;
-}
 
 function qtyNum(s: string): number {
   const n = parseBrDecimal(s);
@@ -76,7 +70,7 @@ export default function RelatorioVendasClasseMaterialPage() {
   const [materialTypeId, setMaterialTypeId] = useState('');
   const [materialId, setMaterialId] = useState('');
   const [dateFrom, setDateFrom] = useState(localYmd(startMonth));
-  const [dateTo, setDateTo] = useState(localYmd(today));
+  const [dateTo, setDateTo] = useState(endOfMonthYmd(today));
   const [depositId, setDepositId] = useState('');
 
   useEffect(() => {
@@ -247,7 +241,7 @@ export default function RelatorioVendasClasseMaterialPage() {
               required
               className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm"
               value={dateTo}
-              onChange={(e) => setDateTo(e.target.value)}
+              onChange={(e) => setDateTo(endOfMonthYmdFromPicker(e.target.value))}
             />
           </div>
         </div>

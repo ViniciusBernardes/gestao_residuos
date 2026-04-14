@@ -99,8 +99,9 @@ export function Shell({ children }: { children: ReactNode }) {
   useEffect(() => {
     if (!mounted) return;
     if (!getToken()) return;
+    if (pathname === '/login') return;
     refreshPermissionsFromMe().finally(() => setPermTick((t) => t + 1));
-  }, [mounted]);
+  }, [mounted, pathname]);
 
   useEffect(() => {
     if (!mounted) return;
@@ -134,7 +135,7 @@ export function Shell({ children }: { children: ReactNode }) {
         return { ...entry, items };
       })
       .filter(Boolean) as NavEntry[];
-  }, [permTick]);
+  }, [permTick, pathname]);
 
   useEffect(() => {
     setNavGroupOpen((prev) => {

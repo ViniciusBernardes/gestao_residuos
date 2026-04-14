@@ -29,8 +29,10 @@ export class StockController {
     @CurrentUser() user: JwtUser,
     @Query('page') page?: string,
     @Query('limit') limit?: string,
+    @Query('q') q?: string,
+    @Query('scope') scope?: string,
   ) {
-    return this.stock.materialOverview(user.tenantId, page, limit);
+    return this.stock.materialOverview(user.tenantId, page, limit, q, scope);
   }
 
   @Get('balances')
