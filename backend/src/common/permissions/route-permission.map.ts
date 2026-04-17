@@ -7,12 +7,11 @@ export function resolveRoutePermission(
   method: string,
   url: string,
 ): { key: PermissionModuleKey; level: PermissionLevel } | null {
-  const path =
-    '/' +
-    (url.split('?')[0] || '')
-      .replace(/^\/api\/?/i, '')
-      .replace(/^\//, '')
-      .replace(/\/$/, '');
+  /** Sem barra inicial — deve bater com os prefixos das regras (ex.: `activity-branches`, não `/activity-branches`). */
+  const path = (url.split('?')[0] || '')
+    .replace(/^\/api\/?/i, '')
+    .replace(/^\//, '')
+    .replace(/\/$/, '');
 
   const m = method.toUpperCase();
   const level: PermissionLevel = ['POST', 'PUT', 'PATCH', 'DELETE'].includes(m) ? 'edit' : 'view';
@@ -28,6 +27,8 @@ export function resolveRoutePermission(
     { prefix: 'integrations', key: 'integracoes' },
     { prefix: 'stock', key: 'estoque' },
     { prefix: 'exits', key: 'saidas' },
+    /** Dashboard da home: alinhado ao módulo «dashboard» do menu, não a «relatórios». */
+    { prefix: 'reports/dashboard', key: 'dashboard' },
     { prefix: 'reports', key: 'relatorios' },
     { prefix: 'audit', key: 'auditoria' },
     { prefix: 'admin', key: 'admin' },

@@ -26,6 +26,9 @@ model Tenant {
   name      String
   slug      String   @unique
   cnpj      String?  @db.VarChar(18)
+  /// Arquivo relativo em uploads/tenants/ (brasão para menu e relatórios).
+  coatOfArmsFilePath     String?  @db.VarChar(512)
+  coatOfArmsOriginalName String?  @db.VarChar(255)
   active    Boolean  @default(true)
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt

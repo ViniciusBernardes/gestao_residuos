@@ -5,7 +5,10 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { Request } from 'express';
+import { existsSync, unlinkSync } from 'fs';
+import { join } from 'path';
 import { parsePageLimit, toPaginated } from '../../common/utils/pagination';
+import { tenantCoatUploadDir } from '../../common/utils/tenant-coat-upload';
 import { JwtUser } from '../../common/decorators/current-user.decorator';
 import { PrismaService } from '../../prisma/prisma.service';
 import { AuditService } from '../../common/services/audit.service';
@@ -20,6 +23,13 @@ const tenantListSelect = {
   active: true,
   createdAt: true,
   updatedAt: true,
+  coatOfArmsFilePath: true,
+  coatOfArmsOriginalName: true,
+} as const;
+
+const tenantDetailSelect = {
+  ...tenantListSelect,
+  schemaVersion: { select: { version: true, appliedAt: true } },
 } as const;
 
 @Injectable()
@@ -34,6 +44,10 @@ export class TenantsService {
     if (user.tenantId !== tenantId) {
       throw new ForbiddenException('Sem permissão para este município');
     }
+  }
+
+  coatOfArmsFullPath(storedFileName: string): string {
+    return join(tenantCoatUploadDir(), storedFileName);
   }
 
   async list(user: JwtUser, page?: string, limit?: string) {
@@ -56,10 +70,7 @@ export class TenantsService {
     this.assertTenantScope(user, id);
     const t = await this.prisma.tenant.findUnique({
       where: { id },
-      select: {
-        ...tenantListSelect,
-        schemaVersion: { select: { version: true, appliedAt: true } },
-      },
+      select: tenantDetailSelect,
     });
     if (!t) throw new NotFoundException('Município não encontrado');
     return t;
@@ -75,11 +86,16 @@ export class TenantsService {
         cnpj: true,
         active: true,
         createdAt: true,
+        coatOfArmsFilePath: true,
+        coatOfArmsOriginalName: true,
         schemaVersion: { select: { version: true, appliedAt: true } },
       },
     });
     if (!t) throw new NotFoundException('Tenant não encontrado');
-    return t;
+    return {
+      ...t,
+      hasCoatOfArms: Boolean(t.coatOfArmsFilePath),
+    };
   }
 
   async create(actor: JwtUser, dto: CreateTenantDto, req: Request) {
@@ -150,5 +166,84 @@ export class TenantsService {
 
   async updateCurrent(user: JwtUser, dto: UpdateTenantDto, req: Request) {
     return this.updateById(user, user.tenantId, dto, req);
+  }
+
+  async setCoatOfArms(actor: JwtUser, tenantId: string, storedFileName: string, originalName: string, req: Request) {
+    this.assertTenantScope(actor, tenantId);
+    const t = await this.prisma.tenant.findUnique({ where: { id: tenantId } });
+    if (!t) throw new NotFoundException('Município não encontrado');
+
+    const prev = t.coatOfArmsFilePath;
+    const row = await this.prisma.tenant.update({
+      where: { id: tenantId },
+      data: {
+        coatOfArmsFilePath: storedFileName,
+        coatOfArmsOriginalName: originalName.slice(0, 255),
+      },
+      select: tenantListSelect,
+    });
+
+    if (prev && prev !== storedFileName) {
+      const oldFull = this.coatOfArmsFullPath(prev);
+      try {
+        if (existsSync(oldFull)) unlinkSync(oldFull);
+      } catch {
+        /* ignore */
+      }
+    }
+
+    await this.audit.log({
+      tenantId,
+      userId: actor.sub,
+      action: 'UPDATE',
+      resource: 'Tenant',
+      resourceId: tenantId,
+      details: { coatOfArms: true, originalName },
+      ip: req.ip,
+      userAgent: req.headers['user-agent'] as string | undefined,
+    });
+    return row;
+  }
+
+  async getCoatOfArmsForDownloadScoped(
+    user: JwtUser,
+    tenantId: string,
+  ): Promise<{
+    fullPath: string;
+    downloadName: string;
+    contentType: string;
+  } | null> {
+    this.assertTenantScope(user, tenantId);
+    return this.getCoatOfArmsForDownload(tenantId);
+  }
+
+  async getCoatOfArmsForDownload(tenantId: string): Promise<{
+    fullPath: string;
+    downloadName: string;
+    contentType: string;
+  } | null> {
+    const t = await this.prisma.tenant.findUnique({
+      where: { id: tenantId },
+      select: { coatOfArmsFilePath: true, coatOfArmsOriginalName: true },
+    });
+    if (!t?.coatOfArmsFilePath) return null;
+    const fullPath = this.coatOfArmsFullPath(t.coatOfArmsFilePath);
+    if (!existsSync(fullPath)) return null;
+    const ext = t.coatOfArmsFilePath.split('.').pop()?.toLowerCase() ?? '';
+    const ct =
+      ext === 'png'
+        ? 'image/png'
+        : ext === 'jpg' || ext === 'jpeg'
+          ? 'image/jpeg'
+          : ext === 'webp'
+            ? 'image/webp'
+            : ext === 'gif'
+              ? 'image/gif'
+              : 'application/octet-stream';
+    return {
+      fullPath,
+      downloadName: t.coatOfArmsOriginalName ?? `brasao.${ext || 'bin'}`,
+      contentType: ct,
+    };
   }
 }

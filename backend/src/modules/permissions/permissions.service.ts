@@ -2,7 +2,7 @@ import { Injectable } from '@nestjs/common';
 import { PrismaService } from '../../prisma/prisma.service';
 import {
   PERMISSION_MODULES,
-  PERMISSION_MODULE_KEYS,
+  PERMISSION_MODULE_KEYS_FOR_MATRIX,
   PermissionCell,
   PermissionsMatrix,
   emptyMatrix,
@@ -14,14 +14,17 @@ export class PermissionsService {
   constructor(private readonly prisma: PrismaService) {}
 
   moduleDefinitions() {
-    return PERMISSION_MODULES.map(({ key, label }) => ({ key, label }));
+    return PERMISSION_MODULES.filter((m) => m.key !== 'integracoes').map(({ key, label }) => ({
+      key,
+      label,
+    }));
   }
 
   sanitizePermissionsJson(raw: unknown): PermissionsMatrix {
     const base = emptyMatrix();
     if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return base;
     const o = raw as Record<string, unknown>;
-    for (const key of PERMISSION_MODULE_KEYS) {
+    for (const key of PERMISSION_MODULE_KEYS_FOR_MATRIX) {
       const cell = o[key];
       if (cell && typeof cell === 'object' && !Array.isArray(cell)) {
         const c = cell as Record<string, unknown>;
@@ -56,6 +59,8 @@ export class PermissionsService {
     moduleKey: string,
     level: 'view' | 'edit',
   ): Promise<boolean> {
+    if (moduleKey === 'integracoes') return true;
+
     const user = await this.prisma.user.findFirst({
       where: { id: userId, tenantId, active: true },
       include: { permissionProfile: { select: { fullAccess: true, permissions: true } } },

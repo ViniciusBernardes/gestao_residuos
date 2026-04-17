@@ -1,7 +1,10 @@
 import { BadRequestException, Injectable } from '@nestjs/common';
 import { EstablishmentRole, MovementType, Prisma } from '@prisma/client';
 import * as ExcelJS from 'exceljs';
+import { existsSync, readFileSync } from 'fs';
+import { join } from 'path';
 import PDFDocument from 'pdfkit';
+import { TENANT_COAT_UPLOAD_SUBDIR } from '../../common/utils/tenant-coat-upload';
 import { PrismaService } from '../../prisma/prisma.service';
 import {
   buildAnalyticalGeneralPdfHtml,
@@ -36,9 +39,102 @@ type StockGeneralRow = {
   quantity: string;
 };
 
+type ReportBranding = {
+  municipalityName: string;
+  coatDataUrl: string | null;
+  coatBuffer: Buffer | null;
+  coatExcelExtension: 'png' | 'jpeg' | 'gif' | null;
+};
+
 @Injectable()
 export class ReportsService {
   constructor(private readonly prisma: PrismaService) {}
+
+  private async loadReportBranding(tenantId: string): Promise<ReportBranding> {
+    const t = await this.prisma.tenant.findUnique({
+      where: { id: tenantId },
+      select: { name: true, coatOfArmsFilePath: true },
+    });
+    const municipalityName = t?.name?.trim() ?? '';
+    if (!t?.coatOfArmsFilePath) {
+      return {
+        municipalityName,
+        coatDataUrl: null,
+        coatBuffer: null,
+        coatExcelExtension: null,
+      };
+    }
+    const full = join(process.cwd(), 'uploads', TENANT_COAT_UPLOAD_SUBDIR, t.coatOfArmsFilePath);
+    if (!existsSync(full)) {
+      return {
+        municipalityName,
+        coatDataUrl: null,
+        coatBuffer: null,
+        coatExcelExtension: null,
+      };
+    }
+    const buffer = readFileSync(full);
+    const ext = t.coatOfArmsFilePath.split('.').pop()?.toLowerCase() ?? '';
+    const mime =
+      ext === 'png'
+        ? 'image/png'
+        : ext === 'jpg' || ext === 'jpeg'
+          ? 'image/jpeg'
+          : ext === 'webp'
+            ? 'image/webp'
+            : ext === 'gif'
+              ? 'image/gif'
+              : '';
+    const coatDataUrl = mime ? `data:${mime};base64,${buffer.toString('base64')}` : null;
+    const coatExcelExtension =
+      ext === 'png' ? 'png' : ext === 'jpg' || ext === 'jpeg' ? 'jpeg' : ext === 'gif' ? 'gif' : null;
+    return {
+      municipalityName,
+      coatDataUrl,
+      coatBuffer: coatExcelExtension ? buffer : null,
+      coatExcelExtension,
+    };
+  }
+
+  /** Insere brasão (se houver), nome do município, título e linha em branco; devolve o índice da próxima linha (1-based) para o cabeçalho da tabela. */
+  private appendExcelBranding(
+    sheet: ExcelJS.Worksheet,
+    workbook: ExcelJS.Workbook,
+    branding: ReportBranding,
+    mergeCols: number,
+    title: string,
+  ): number {
+    let r = 1;
+    if (branding.coatBuffer && branding.coatExcelExtension) {
+      sheet.addRow([]);
+      sheet.getRow(r).height = 64;
+      const imgId = workbook.addImage({
+        // ExcelJS tipa `Buffer` com assinatura legada; o buffer de `fs` é compatível em runtime.
+        buffer: branding.coatBuffer as never,
+        extension: branding.coatExcelExtension,
+      });
+      const centerCol = Math.max(0, mergeCols / 2 - 0.75);
+      sheet.addImage(imgId, {
+        tl: { col: centerCol, row: r - 1 },
+        ext: { width: 56, height: 56 },
+      });
+      r++;
+    }
+    if (branding.municipalityName) {
+      const row = sheet.addRow([branding.municipalityName]);
+      sheet.mergeCells(r, 1, r, mergeCols);
+      row.getCell(1).alignment = { horizontal: 'center', vertical: 'middle' };
+      row.font = { bold: true, size: 14 };
+      r++;
+    }
+    const titleRow = sheet.addRow([title]);
+    sheet.mergeCells(r, 1, r, mergeCols);
+    titleRow.getCell(1).font = { bold: true, size: 12 };
+    r++;
+    sheet.addRow([]);
+    r++;
+    return r;
+  }
 
   private summarizeAnalyticalRows(rows: AnalyticalRow[]) {
     const z = () => new Prisma.Decimal(0);
@@ -307,12 +403,10 @@ export class ReportsService {
 
     const workbook = new ExcelJS.Workbook();
     const sheet = workbook.addWorksheet('Analítico geral');
+    const branding = await this.loadReportBranding(tenantId);
 
     const title = `Relatório analítico — ${new Date(period.from).toLocaleDateString('pt-BR')} a ${new Date(period.to).toLocaleDateString('pt-BR')}`;
-    sheet.addRow([title]);
-    sheet.mergeCells(1, 1, 1, 12);
-    sheet.getRow(1).font = { bold: true, size: 12 };
-    sheet.addRow([]);
+    const headerStart = this.appendExcelBranding(sheet, workbook, branding, 12, title);
 
     const headers = [
       'Código',
@@ -406,7 +500,7 @@ export class ReportsService {
     ];
 
     sheet.getColumn(7).eachCell({ includeEmpty: true }, (cell, rowNumber) => {
-      if (rowNumber >= 3) cell.alignment = { horizontal: 'center', vertical: 'middle' };
+      if (rowNumber >= headerStart) cell.alignment = { horizontal: 'center', vertical: 'middle' };
     });
 
     const buf = await workbook.xlsx.writeBuffer();
@@ -424,11 +518,19 @@ export class ReportsService {
     },
   ): Promise<Buffer> {
     const { rows, period, summary } = await this.analyticalGeneral(tenantId, q);
+    const branding = await this.loadReportBranding(tenantId);
     const html = buildAnalyticalGeneralPdfHtml({
       rows,
       periodFromIso: period.from,
       periodToIso: period.to,
       footerSummary: summary,
+      branding:
+        branding.municipalityName || branding.coatDataUrl
+          ? {
+              municipalityName: branding.municipalityName,
+              coatDataUrl: branding.coatDataUrl,
+            }
+          : undefined,
     });
     return renderAnalyticalGeneralPdfHtml(html);
   }
@@ -488,10 +590,8 @@ export class ReportsService {
 
     const depLine = dep.code ? `${dep.code} — ${dep.tradeName}` : dep.tradeName;
     const title = `Relatório analítico por depósito — ${depLine} — ${new Date(period.from).toLocaleDateString('pt-BR')} a ${new Date(period.to).toLocaleDateString('pt-BR')}`;
-    sheet.addRow([title]);
-    sheet.mergeCells(1, 1, 1, 10);
-    sheet.getRow(1).font = { bold: true, size: 12 };
-    sheet.addRow([]);
+    const branding = await this.loadReportBranding(tenantId);
+    const headerStart = this.appendExcelBranding(sheet, workbook, branding, 10, title);
 
     const headers = [
       'Código',
@@ -544,7 +644,7 @@ export class ReportsService {
     ];
 
     sheet.getColumn(5).eachCell({ includeEmpty: true }, (cell, rowNumber) => {
-      if (rowNumber >= 3) cell.alignment = { horizontal: 'center', vertical: 'middle' };
+      if (rowNumber >= headerStart) cell.alignment = { horizontal: 'center', vertical: 'middle' };
     });
 
     const buf = await workbook.xlsx.writeBuffer();
@@ -564,11 +664,19 @@ export class ReportsService {
     const dep = await this.requireActiveDeposit(tenantId, q.depositId.trim());
     const { rows, period } = await this.analyticalByDeposit(tenantId, q);
     const depLabel = dep.code ? `Depósito: ${dep.code} — ${dep.tradeName}` : `Depósito: ${dep.tradeName}`;
+    const branding = await this.loadReportBranding(tenantId);
     const html = buildAnalyticalGeneralPdfHtml({
       rows,
       periodFromIso: period.from,
       periodToIso: period.to,
       byDepositLabel: depLabel,
+      branding:
+        branding.municipalityName || branding.coatDataUrl
+          ? {
+              municipalityName: branding.municipalityName,
+              coatDataUrl: branding.coatDataUrl,
+            }
+          : undefined,
     });
     return renderAnalyticalGeneralPdfHtml(html);
   }
@@ -772,12 +880,10 @@ export class ReportsService {
 
     const workbook = new ExcelJS.Workbook();
     const sheet = workbook.addWorksheet('Estoque geral');
+    const branding = await this.loadReportBranding(tenantId);
 
     const title = `Materiais em estoque geral — ${new Date(period.from).toLocaleDateString('pt-BR')} a ${new Date(period.to).toLocaleDateString('pt-BR')} — posição em ${new Date(asOf).toLocaleString('pt-BR')}`;
-    sheet.addRow([title]);
-    sheet.mergeCells(1, 1, 1, 8);
-    sheet.getRow(1).font = { bold: true, size: 12 };
-    sheet.addRow([]);
+    const headerStart = this.appendExcelBranding(sheet, workbook, branding, 8, title);
 
     const headers = [
       'Código',
@@ -824,7 +930,7 @@ export class ReportsService {
     ];
 
     sheet.getColumn(7).eachCell({ includeEmpty: true }, (cell, rowNumber) => {
-      if (rowNumber >= 3) cell.alignment = { horizontal: 'center', vertical: 'middle' };
+      if (rowNumber >= headerStart) cell.alignment = { horizontal: 'center', vertical: 'middle' };
     });
 
     const buf = await workbook.xlsx.writeBuffer();
@@ -842,11 +948,19 @@ export class ReportsService {
     },
   ): Promise<Buffer> {
     const { rows, period, asOf } = await this.stockGeneral(tenantId, q);
+    const branding = await this.loadReportBranding(tenantId);
     const html = buildStockGeneralPdfHtml({
       rows,
       periodFromIso: period.from,
       periodToIso: period.to,
       asOfIso: asOf,
+      branding:
+        branding.municipalityName || branding.coatDataUrl
+          ? {
+              municipalityName: branding.municipalityName,
+              coatDataUrl: branding.coatDataUrl,
+            }
+          : undefined,
     });
     return renderStockGeneralPdfHtml(html);
   }
@@ -1232,32 +1346,46 @@ export class ReportsService {
 
     const workbook = new ExcelJS.Workbook();
     const sheet = workbook.addWorksheet('Movimentações');
-    sheet.columns = [
-      { header: 'Data', key: 'd', width: 22 },
-      { header: 'Tipo', key: 't', width: 14 },
-      { header: 'Material', key: 'm', width: 28 },
-      { header: 'Qtd', key: 'q', width: 14 },
-      { header: 'Origem', key: 'o', width: 22 },
-      { header: 'Destino', key: 'dt', width: 22 },
-      { header: 'Ref', key: 'r', width: 16 },
-    ];
+    const branding = await this.loadReportBranding(tenantId);
+    this.appendExcelBranding(
+      sheet,
+      workbook,
+      branding,
+      7,
+      'Histórico de movimentações (até 5000 registos mais recentes)',
+    );
+    const headers = ['Data', 'Tipo', 'Material', 'Qtd', 'Origem', 'Destino', 'Ref'];
+    const headerRow = sheet.addRow(headers);
+    headerRow.font = { bold: true };
+    headerRow.eachCell((cell) => {
+      cell.fill = {
+        type: 'pattern',
+        pattern: 'solid',
+        fgColor: { argb: 'FFE0E7EF' },
+      };
+    });
     for (const r of rows) {
-      sheet.addRow({
-        d: r.occurredAt.toISOString(),
-        t: r.type,
-        m: r.material.name,
-        q: r.quantity.toString(),
-        o: r.establishmentFrom?.tradeName ?? '',
-        dt: r.establishmentTo?.tradeName ?? '',
-        r: r.reference ?? '',
-      });
+      sheet.addRow([
+        r.occurredAt.toISOString(),
+        r.type,
+        r.material.name,
+        r.quantity.toString(),
+        r.establishmentFrom?.tradeName ?? '',
+        r.establishmentTo?.tradeName ?? '',
+        r.reference ?? '',
+      ]);
     }
+    const widths = [22, 14, 28, 14, 22, 22, 16];
+    widths.forEach((w, i) => {
+      sheet.getColumn(i + 1).width = w;
+    });
 
     const buf = await workbook.xlsx.writeBuffer();
     return Buffer.from(buf);
   }
 
   async exportStockPdf(tenantId: string): Promise<Buffer> {
+    const branding = await this.loadReportBranding(tenantId);
     const balances = await this.prisma.stockBalance.findMany({
       where: { tenantId },
       include: {
@@ -1271,6 +1399,21 @@ export class ReportsService {
     const chunks: Buffer[] = [];
     doc.on('data', (c: Buffer) => chunks.push(c));
 
+    const left = doc.page.margins.left;
+    let y = doc.y;
+    if (branding.coatBuffer && branding.coatExcelExtension) {
+      try {
+        doc.image(branding.coatBuffer, left, y, { width: 56, height: 56 });
+        y += 60;
+        doc.y = y;
+      } catch {
+        /* formato não suportado pelo PDFKit */
+      }
+    }
+    if (branding.municipalityName) {
+      doc.fontSize(12).text(branding.municipalityName, { align: 'center' });
+      doc.moveDown(0.4);
+    }
     doc.fontSize(16).text('Relatório de estoque por depósito', { underline: true });
     doc.moveDown();
     doc.fontSize(10);

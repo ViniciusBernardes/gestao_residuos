@@ -26,6 +26,7 @@ export function readPermissionsMatrix(): PermissionsMatrix | null {
 
 /** Visualizar menu / página (leitura). Acesso total ignora matriz. Demais: só o que estiver explícito com view. */
 export function canView(moduleKey: string): boolean {
+  if (moduleKey === 'integracoes') return true;
   if (readUserFullAccess()) return true;
   const m = readPermissionsMatrix();
   if (!m) return false;
@@ -34,6 +35,7 @@ export function canView(moduleKey: string): boolean {
 
 /** Incluir / alterar / excluir dados do módulo. */
 export function canEdit(moduleKey: string): boolean {
+  if (moduleKey === 'integracoes') return true;
   if (readUserFullAccess()) return true;
   const m = readPermissionsMatrix();
   if (!m) return false;

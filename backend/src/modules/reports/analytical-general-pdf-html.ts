@@ -131,8 +131,13 @@ export function buildAnalyticalGeneralPdfHtml(opts: {
   byDepositLabel?: string;
   /** Resumo após a tabela (relatório geral). */
   footerSummary?: AnalyticalGeneralFooterSummary;
+  /** Brasão e nome do município (cabeçalho). */
+  branding?: {
+    municipalityName: string;
+    coatDataUrl?: string | null;
+  };
 }): string {
-  const { rows, periodFromIso, periodToIso, byDepositLabel, footerSummary } = opts;
+  const { rows, periodFromIso, periodToIso, byDepositLabel, footerSummary, branding } = opts;
   const byDeposit = Boolean(byDepositLabel?.trim());
   const fromD = new Date(periodFromIso);
   const toD = new Date(periodToIso);
@@ -201,6 +206,21 @@ export function buildAnalyticalGeneralPdfHtml(opts: {
 
   const pageTitle = byDeposit ? 'Relatório analítico por depósito' : 'Relatório analítico';
   const h1Text = byDeposit ? 'Relatório analítico por depósito' : 'Relatório analítico';
+
+  const brandingHtml =
+    branding &&
+    (branding.coatDataUrl ||
+      (branding.municipalityName && branding.municipalityName.trim().length > 0))
+      ? `<div class="report-brand">${
+          branding.coatDataUrl
+            ? `<img class="coat" src="${branding.coatDataUrl}" alt="" />`
+            : ''
+        }${
+          branding.municipalityName?.trim()
+            ? `<p class="muni">${esc(branding.municipalityName.trim())}</p>`
+            : ''
+        }</div>`
+      : '';
 
   return `<!DOCTYPE html>
 <html lang="pt-BR">
@@ -272,6 +292,25 @@ export function buildAnalyticalGeneralPdfHtml(opts: {
     .wrap {
       max-width: 100%;
       padding: 4px 0 0;
+    }
+
+    .report-brand {
+      text-align: center;
+      margin-bottom: 10px;
+    }
+
+    .report-brand .coat {
+      max-height: 56px;
+      max-width: 72px;
+      object-fit: contain;
+      display: inline-block;
+    }
+
+    .report-brand .muni {
+      margin: 6px 0 0;
+      font-size: 13px;
+      font-weight: 700;
+      color: #0f172a;
     }
 
     h1 {
@@ -416,6 +455,7 @@ export function buildAnalyticalGeneralPdfHtml(opts: {
 </head>
 <body>
   <div class="wrap">
+    ${brandingHtml}
     <h1>${esc(h1Text)}</h1>
     <p class="lede">${
       byDeposit

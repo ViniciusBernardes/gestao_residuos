@@ -26,8 +26,12 @@ export function buildStockGeneralPdfHtml(opts: {
   periodFromIso: string;
   periodToIso: string;
   asOfIso: string;
+  branding?: {
+    municipalityName: string;
+    coatDataUrl?: string | null;
+  };
 }): string {
-  const { rows, periodFromIso, periodToIso, asOfIso } = opts;
+  const { rows, periodFromIso, periodToIso, asOfIso, branding } = opts;
   const fromD = new Date(periodFromIso);
   const toD = new Date(periodToIso);
   const asOfD = new Date(asOfIso);
@@ -71,6 +75,21 @@ export function buildStockGeneralPdfHtml(opts: {
           })
           .join('\n');
 
+  const brandingHtml =
+    branding &&
+    (branding.coatDataUrl ||
+      (branding.municipalityName && branding.municipalityName.trim().length > 0))
+      ? `<div class="report-brand">${
+          branding.coatDataUrl
+            ? `<img class="coat" src="${branding.coatDataUrl}" alt="" />`
+            : ''
+        }${
+          branding.municipalityName?.trim()
+            ? `<p class="muni">${esc(branding.municipalityName.trim())}</p>`
+            : ''
+        }</div>`
+      : '';
+
   return `<!DOCTYPE html>
 <html lang="pt-BR">
 <head>
@@ -91,6 +110,9 @@ export function buildStockGeneralPdfHtml(opts: {
       print-color-adjust: exact;
     }
     .wrap { max-width: 100%; padding: 4px 0 0; }
+    .report-brand { text-align: center; margin-bottom: 10px; }
+    .report-brand .coat { max-height: 56px; max-width: 72px; object-fit: contain; display: inline-block; }
+    .report-brand .muni { margin: 6px 0 0; font-size: 13px; font-weight: 700; color: #0f172a; }
     h1 {
       margin: 0 0 4px;
       padding-left: 10px;
@@ -144,6 +166,7 @@ export function buildStockGeneralPdfHtml(opts: {
 </head>
 <body>
   <div class="wrap">
+    ${brandingHtml}
     <h1>Materiais em estoque geral</h1>
     <p class="lede">Saldo por material e depósito de armazenagem (acumulado até a data final). <strong>Período:</strong> ${esc(periodLine)}</p>
     <div class="card">

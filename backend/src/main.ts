@@ -8,6 +8,7 @@ import { AppModule } from './app.module';
 async function bootstrap() {
   mkdirSync(join(process.cwd(), 'uploads', 'establishments'), { recursive: true });
   mkdirSync(join(process.cwd(), 'uploads', 'stock-exits'), { recursive: true });
+  mkdirSync(join(process.cwd(), 'uploads', 'tenants'), { recursive: true });
   const app = await NestFactory.create(AppModule, {
     logger: ['error', 'warn', 'log', 'debug', 'verbose'],
   });

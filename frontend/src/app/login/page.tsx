@@ -46,7 +46,17 @@ export default function LoginPage() {
   }
 
   return (
-    <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-brand-900 to-slate-900 p-4">
+    <div className="min-h-screen flex flex-col items-center justify-center bg-gradient-to-br from-brand-900 to-slate-900 p-4 gap-6">
+      <div className="w-full max-w-3xl shrink-0 px-1">
+        <img
+          src="/branding/login-banner.png"
+          alt="Prefeitura Municipal de Guimarânia — identidade visual"
+          className="w-full h-auto rounded-2xl bg-white shadow-xl object-contain"
+          width={1024}
+          height={244}
+          decoding="async"
+        />
+      </div>
       <div className="w-full max-w-md rounded-2xl bg-white shadow-xl p-8">
         <h1 className="text-xl font-bold text-slate-800 text-center mb-1">Gestão de Resíduos</h1>
         <p className="text-sm text-slate-500 text-center mb-6">Acesso ao município (tenant)</p>

@@ -25,7 +25,7 @@ export default function AdminMunicipioNovoPage() {
     e.preventDefault();
     setErr('');
     try {
-      await api('/tenants', {
+      const created = await api<{ id: string }>('/tenants', {
         method: 'POST',
         body: JSON.stringify({
           name: form.name.trim(),
@@ -33,7 +33,7 @@ export default function AdminMunicipioNovoPage() {
           cnpj: form.cnpj.trim() || undefined,
         }),
       });
-      router.push('/admin');
+      router.push(`/admin/${created.id}/editar`);
     } catch (ex) {
       setErr(ex instanceof Error ? ex.message : 'Erro');
     }
@@ -48,8 +48,9 @@ export default function AdminMunicipioNovoPage() {
       </Link>
       <h1 className="text-2xl font-bold text-slate-800 mt-2">Novo município (tenant)</h1>
       <p className="text-slate-600 text-sm mt-1">
-        Slug único na plataforma (minúsculas, números e hífens). Após criar, cadastre usuários e perfis
-        nesse município pelo banco ou fluxo de onboarding.
+        Slug único na plataforma (minúsculas, números e hífens). Após salvar, abre-se a edição para
+        enviar o brasão (menu e relatórios). Cadastre usuários e perfis nesse município pelo banco ou
+        fluxo de onboarding.
       </p>
       {err && <p className="text-red-600 text-sm my-4">{err}</p>}
       <form

@@ -6,7 +6,6 @@ export const PERMISSION_MODULES = [
   { key: 'config_unidades', label: 'Unidades' },
   { key: 'materiais', label: 'Materiais' },
   { key: 'estabelecimentos', label: 'Estabelecimentos' },
-  { key: 'integracoes', label: 'Integrações (CEP / CNPJ / IBGE)' },
   { key: 'estoque', label: 'Estoque' },
   { key: 'saidas', label: 'Saídas / destinação' },
   { key: 'usuarios', label: 'Usuários' },

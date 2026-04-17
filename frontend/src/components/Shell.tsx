@@ -3,7 +3,7 @@
 import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
 import { ReactNode, useEffect, useMemo, useRef, useState } from 'react';
-import { getToken, setToken } from '@/lib/api';
+import { apiBlobAllow404, getToken, setToken } from '@/lib/api';
 import { isTypingTarget } from '@/lib/is-typing-target';
 import type { PermissionModuleKey } from '@/lib/permission-keys';
 import { GO_FORM_ROUTES, resolveEditUrl } from '@/lib/go-shortcuts';
@@ -43,6 +43,8 @@ export function Shell({ children }: { children: ReactNode }) {
   const [mounted, setMounted] = useState(false);
   const [navGroupOpen, setNavGroupOpen] = useState<Record<string, boolean>>({});
   const [helpOpen, setHelpOpen] = useState(false);
+  const [coatSrc, setCoatSrc] = useState<string | null>(null);
+  const coatUrlRef = useRef<string | null>(null);
   const dialogRef = useRef<HTMLDialogElement>(null);
   const goPendingRef = useRef(false);
   const goTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -54,6 +56,40 @@ export function Shell({ children }: { children: ReactNode }) {
   useEffect(() => {
     setMounted(true);
   }, []);
+
+  useEffect(() => {
+    if (!mounted || pathname === '/login' || !getToken()) {
+      if (coatUrlRef.current) {
+        URL.revokeObjectURL(coatUrlRef.current);
+        coatUrlRef.current = null;
+      }
+      setCoatSrc(null);
+      return;
+    }
+    let cancelled = false;
+    (async () => {
+      const blob = await apiBlobAllow404('/tenants/current/coat-of-arms').catch(() => null);
+      if (cancelled) return;
+      if (coatUrlRef.current) {
+        URL.revokeObjectURL(coatUrlRef.current);
+        coatUrlRef.current = null;
+      }
+      if (!blob || blob.size === 0) {
+        setCoatSrc(null);
+        return;
+      }
+      const url = URL.createObjectURL(blob);
+      coatUrlRef.current = url;
+      setCoatSrc(url);
+    })();
+    return () => {
+      cancelled = true;
+      if (coatUrlRef.current) {
+        URL.revokeObjectURL(coatUrlRef.current);
+        coatUrlRef.current = null;
+      }
+    };
+  }, [mounted, pathname, permTick]);
 
   useEffect(() => {
     if (!mounted) return;
@@ -284,6 +320,15 @@ export function Shell({ children }: { children: ReactNode }) {
         Pular para o conteúdo
       </a>
       <aside className="w-56 bg-brand-900 text-white flex flex-col shrink-0" aria-label="Menu principal">
+        {coatSrc ? (
+          <div className="px-4 pt-4 pb-2 flex justify-center border-b border-brand-700/60">
+            <img
+              src={coatSrc}
+              alt=""
+              className="max-h-[9.8rem] max-w-[min(12.6rem,100%)] object-contain drop-shadow-sm"
+            />
+          </div>
+        ) : null}
         <div className="p-4 border-b border-brand-700">
           <div className="font-semibold text-sm">Gestão de Resíduos</div>
           <div className="text-xs text-brand-100 truncate">{userName}</div>

@@ -115,6 +115,32 @@ export async function apiBlob(path: string, opts?: { skipAuthRedirect?: boolean 
    return res.blob();
 }
 
+/** GET binário; devolve `null` em 404 (ex.: recurso opcional). */
+export async function apiBlobAllow404(
+  path: string,
+  opts?: { skipAuthRedirect?: boolean },
+): Promise<Blob | null> {
+  const token = getToken();
+  const res = await fetch(`${API_BASE}${path}`, {
+    headers: token ? { Authorization: `Bearer ${token}` } : {},
+  });
+  if (res.status === 401 && !opts?.skipAuthRedirect) {
+    clearSessionAndRedirectToLogin();
+  }
+  if (res.status === 404) return null;
+  if (!res.ok) {
+    let msg = res.statusText;
+    try {
+      const j = await res.json();
+      msg = j.message ?? JSON.stringify(j);
+    } catch {
+      /* ignore */
+    }
+    throw new Error(msg);
+  }
+  return res.blob();
+}
+
 /** POST que retorna binário (ex.: download de backup). */
 export async function apiBlobPost(
   path: string,
